@@ -17,16 +17,23 @@ public class KeyInterceptor {
     public var onLiveEvent: ((String, String) -> Void)?
     
     private let logQueue = DispatchQueue(label: "com.keylite.logger", qos: .utility)
+    private static let dateFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        return f
+    }()
     
-    private var logURL: URL {
+    // 使用不可变 let，避免 lazy var 在多线程并发访问时的竞态隐患
+    private let logURL: URL = {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(".keylite/app.log")
-    }
+        let dir = home.appendingPathComponent(".keylite", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("app.log")
+    }()
     
     public init() {}
     
     public func log(_ message: String) {
-        let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"
+        let line = "[\(Self.dateFormatter.string(from: Date()))] \(message)\n"
         print(line, terminator: "")
         
         // 异步后台落盘，严禁在 CGEventTap 回调的主流程中同步操作磁盘导致事件超时被挂起
@@ -40,7 +47,7 @@ public class KeyInterceptor {
                 if let data = try? Data(contentsOf: self.logURL) {
                     let keepSize = min(100 * 1024, data.count)
                     let trimmed = data.suffix(keepSize)
-                    try? trimmed.write(to: self.logURL)
+                    try? trimmed.write(to: self.logURL, options: .atomic)
                 }
             }
             
@@ -59,8 +66,17 @@ public class KeyInterceptor {
     }
     
     public func start() -> Bool {
-        if isRunning && eventTap != nil {
-            return true
+        if let tap = eventTap {
+            if !CGEvent.tapIsEnabled(tap: tap) {
+                CGEvent.tapEnable(tap: tap, enable: true)
+                log("🔄 重新激活系统挂起的 EventTap")
+            }
+            if CGEvent.tapIsEnabled(tap: tap) {
+                self.isRunning = true
+                return true
+            }
+            // 若重新使能失败（如休眠唤醒后 MachPort 彻底失效），彻底注销并重新创建
+            stop()
         }
         
         let trustedAX = AXIsProcessTrusted()
@@ -82,11 +98,12 @@ public class KeyInterceptor {
                     let interceptor = Unmanaged<KeyInterceptor>.fromOpaque(refcon).takeUnretainedValue()
                     interceptor.reEnable()
                 }
-                return Unmanaged.passRetained(event)
+                // 超时/用户输入禁用是系统状态通知，严禁将其作为普通用户按键放行，必须返回 nil
+                return nil
             }
             
             guard let refcon = refcon else {
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             }
             let interceptor = Unmanaged<KeyInterceptor>.fromOpaque(refcon).takeUnretainedValue()
             return interceptor.handleEvent(proxy: proxy, type: type, event: event)
@@ -136,6 +153,7 @@ public class KeyInterceptor {
             if let source = runLoopSource {
                 CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
             }
+            CFMachPortInvalidate(tap)
             self.eventTap = nil
             self.runLoopSource = nil
         }
@@ -146,7 +164,15 @@ public class KeyInterceptor {
     public func reEnable() {
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: true)
-            log("🔄 CGEventTap 被系统挂起后已重新激活")
+            // 检测 re-enable 是否真正成功（权限可能已被用户撤销或系统挂起）
+            if CGEvent.tapIsEnabled(tap: tap) {
+                log("🔄 CGEventTap 被系统挂起后已重新激活")
+            } else {
+                log("⚠️ CGEventTap 重新激活失败，权限已失效，立即彻底注销以释放输入管线")
+                stop()
+                PermissionManager.shared.refresh()
+                PermissionManager.shared.startPolling()
+            }
         }
     }
     
@@ -154,7 +180,7 @@ public class KeyInterceptor {
         // 1. 忽略自身模拟发送的快捷键，防止死循环
         let marker = event.getIntegerValueField(.eventSourceUserData)
         if marker == ShortcutSimulator.syntheticEventMarker {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
         
         // 2. 滚轮翻转处理 (反转鼠标滚轮滚动方向)
@@ -172,7 +198,7 @@ public class KeyInterceptor {
                     event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: -pointDeltaY)
                 }
             }
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
         
         // 3. 鼠标侧键处理 (Button 3: 后退, Button 4: 前进 等)
@@ -190,15 +216,17 @@ public class KeyInterceptor {
                     let btnName = buttonNumber == 3 ? "鼠标侧键(后退)" : (buttonNumber == 4 ? "鼠标侧键(前进)" : "鼠标侧键(\(buttonNumber))")
                     log("🖱️ 捕获 \(btnName) -> 执行: \(desc)")
                     
-                    DispatchQueue.main.async {
-                        self.onLiveEvent?(btnName, desc)
+                    if let onLiveEvent = self.onLiveEvent {
+                        DispatchQueue.main.async {
+                            onLiveEvent(btnName, desc)
+                        }
                     }
                     self.triggerAction(mapping: mapping)
                 }
                 // 彻底消费该侧键，阻止系统默认或异常行为
                 return nil
             }
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
         
         // 4. 键盘按键处理
@@ -215,12 +243,12 @@ public class KeyInterceptor {
         
         // 全局暂停时放行
         guard AppConfig.shared.enabled else {
-            if type == .keyDown {
+            if type == .keyDown, let onLiveEvent = self.onLiveEvent {
                 DispatchQueue.main.async {
-                    self.onLiveEvent?(keyName, "KeyLite 已暂停 (放行原生按键)")
+                    onLiveEvent(keyName, "KeyLite 已暂停 (放行原生按键)")
                 }
             }
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
         
         // 匹配键盘按键映射规则
@@ -235,8 +263,10 @@ public class KeyInterceptor {
                 let actionDesc = descriptionForAction(mapping)
                 log("⌨️ 捕获按键: [\(keyName)] -> 命中规则: [\(mapping.displayName)] -> 执行: \(actionDesc)")
                 
-                DispatchQueue.main.async {
-                    self.onLiveEvent?("键盘 [\(keyName)]", actionDesc)
+                if let onLiveEvent = self.onLiveEvent {
+                    DispatchQueue.main.async {
+                        onLiveEvent("键盘 [\(keyName)]", actionDesc)
+                    }
                 }
                 self.triggerAction(mapping: mapping)
             }
@@ -245,12 +275,13 @@ public class KeyInterceptor {
         }
         
         // 未命中规则，正常放行给系统
-        if type == .keyDown {
+        // 性能保护：仅在 UI 处于前台测试状态时才向主线程调度派发，避免 7*24 正常打字时每敲一个按键都调度 GCD
+        if type == .keyDown, let onLiveEvent = self.onLiveEvent {
             DispatchQueue.main.async {
-                self.onLiveEvent?("按键 [\(keyName)]", "未配置快捷指令 (原生放行)")
+                onLiveEvent("按键 [\(keyName)]", "未配置快捷指令 (原生放行)")
             }
         }
-        return Unmanaged.passRetained(event)
+        return Unmanaged.passUnretained(event)
     }
     
     private func descriptionForAction(_ mapping: KeyMapping) -> String {

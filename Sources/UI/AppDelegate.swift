@@ -37,6 +37,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             object: nil
         )
         
+        // 注册应用获得焦点通知（用户从系统设置授权切回时，立即主动刷新权限）
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        
         // 1. 初始化菜单栏
         syncStatusItemVisibility()
         
@@ -60,6 +68,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             DeviceDetector.shared.refreshDevices()
             self.updateMenu()
         }
+    }
+    
+    @objc private func handleAppDidBecomeActive() {
+        // 用户从 macOS「系统设置」授权后切回 KeyLite，立即刷新权限并自动关闭弹窗
+        PermissionManager.shared.refresh()
     }
     
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -171,8 +184,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     
     public func windowWillClose(_ notification: Notification) {
-        // 窗口关闭时立刻停止前台轮询，进入 0 CPU 深度省电模式
+        // 窗口关闭时立刻停止前台轮询与实时按键监听，释放视图层级，进入 0 CPU 深度省电模式
         DeviceDetector.shared.stopPolling()
+        PermissionManager.shared.stopPolling()
+        KeyInterceptor.shared.onLiveEvent = nil
+        self.settingsWindow = nil
     }
     
     @objc public func toggleLaunchAtLogin() {

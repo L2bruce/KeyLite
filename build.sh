@@ -9,6 +9,10 @@ BUILD_DIR="build"
 APP_DIR="${BUILD_DIR}/${APP_NAME}.app"
 DEST="/Applications/${APP_NAME}.app"
 
+echo "==> 0. 安全退出正在运行的 KeyLite（确保内核安全释放 EventTap，防止触控板/鼠标冻结）"
+killall -9 "${APP_NAME}" 2>/dev/null || true
+sleep 0.5
+
 echo "==> 1. 清理并准备构建目录"
 rm -rf "$BUILD_DIR"
 mkdir -p "${APP_DIR}/Contents/MacOS"
@@ -70,13 +74,13 @@ swiftc -O \
 echo "==> 5. 严格代码签名"
 codesign --force --deep --sign - "${APP_DIR}"
 
-echo "==> 6. 部署到 ~/Applications/"
+echo "==> 6. 部署到 /Applications/"
 rm -rf "$DEST"
 ditto "$APP_DIR" "$DEST"
 codesign --force --deep --sign - "$DEST"
 touch "$DEST"
 
-echo "==> 7. 清理旧版本 TCC 授权指纹缓存（防止假授权）"
+echo "==> 7. 重置 TCC 授权指纹缓存（清除旧 CDHash 哈希值，防止假授权或权限无法添加）"
 tccutil reset Accessibility "${BUNDLE_ID}" 2>/dev/null || true
 tccutil reset ListenEvent "${BUNDLE_ID}" 2>/dev/null || true
 

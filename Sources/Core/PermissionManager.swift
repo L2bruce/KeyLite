@@ -10,7 +10,7 @@ public class PermissionManager: ObservableObject {
     @Published public var isInterceptorActive: Bool = false
     
     public var isAllGranted: Bool {
-        return hasAccessibility && hasInputMonitoring
+        return hasAccessibility && isInterceptorActive
     }
     
     private var timer: Timer?
@@ -29,34 +29,52 @@ public class PermissionManager: ObservableObject {
             self.hasAccessibility = ax
             self.hasInputMonitoring = im
             self.isInterceptorActive = running
+            
+            // 只要辅助功能权限就绪且拦截器未运行，即刻拉起
+            if ax && !running {
+                let success = KeyInterceptor.shared.start()
+                self.isInterceptorActive = success
+                if success {
+                    AppDelegate.shared?.updateMenu()
+                }
+            }
         }
     }
     
     public func startPolling() {
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
+        DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            let oldAX = self.hasAccessibility
-            let oldIM = self.hasInputMonitoring
-            
-            let ax = AXIsProcessTrusted()
-            let im = CGPreflightListenEventAccess()
-            let running = KeyInterceptor.shared.isRunning
-            
-            DispatchQueue.main.async {
+            self.timer?.invalidate()
+            // 提高前台授权时的响应敏感度（0.4s），用户在系统设置勾选后切回秒级感知
+            self.timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
+                guard let self = self else { return }
+                let oldAX = self.hasAccessibility
+                let ax = AXIsProcessTrusted()
+                let im = CGPreflightListenEventAccess()
+                let running = KeyInterceptor.shared.isRunning
+                
                 self.hasAccessibility = ax
                 self.hasInputMonitoring = im
                 self.isInterceptorActive = running
                 
-                // 如果用户刚刚在系统设置里开启了权限，且拦截器尚未启动，则自动拉起拦截器！
-                if (!oldAX || !oldIM) && ax && im && !running {
-                    KeyInterceptor.shared.log("🎉 检测到系统权限已授予，自动激活按键拦截器！")
+                // 辅助功能已就绪且拦截器未启动：自动激活拦截器
+                if (!oldAX || !running) && ax {
+                    KeyInterceptor.shared.log("🎉 检测到辅助功能权限已授予，自动激活按键拦截器！")
                     let success = KeyInterceptor.shared.start()
                     self.isInterceptorActive = success
+                    AppDelegate.shared?.updateMenu()
                 }
                 
-                // 权限已全部就绪且拦截器处于运行状态时，暂停高频轮询，避免后台消耗 CPU
-                if ax && im && running {
+                // 关键安全防线：若辅助功能被明确撤销，必须立即彻底注销释放 EventTap
+                if !ax && running {
+                    KeyInterceptor.shared.log("⚠️ 检测到辅助功能权限被撤销，立即注销并释放按键拦截器！")
+                    KeyInterceptor.shared.stop()
+                    self.isInterceptorActive = false
+                    AppDelegate.shared?.updateMenu()
+                }
+                
+                // 权限就绪且拦截器处于运行状态时，暂停高频轮询，避免后台消耗 CPU
+                if ax && self.isInterceptorActive {
                     self.stopPolling()
                 }
             }
@@ -64,8 +82,10 @@ public class PermissionManager: ObservableObject {
     }
     
     public func stopPolling() {
-        timer?.invalidate()
-        timer = nil
+        DispatchQueue.main.async { [weak self] in
+            self?.timer?.invalidate()
+            self?.timer = nil
+        }
     }
     
     public func requestAccessibility() {

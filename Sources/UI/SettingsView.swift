@@ -24,9 +24,10 @@ public struct SettingsView: View {
             
             Divider()
             
-            // 2. 权限引导条（如果已获得权限则自动隐藏，不烦人）
+            // 2. 权限引导条（如果已获得权限则自动平滑隐藏，无需手动多点）
             if !permission.isAllGranted {
                 permissionBanner
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
             
             // 3. 实时测试视窗
@@ -154,6 +155,8 @@ public struct SettingsView: View {
         }
         .onDisappear {
             devices.stopPolling()
+            permission.stopPolling()
+            KeyInterceptor.shared.onLiveEvent = nil
         }
         .sheet(item: Binding<KeyMapping?>(
             get: {
@@ -233,7 +236,7 @@ public struct SettingsView: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
                     .font(.system(size: 15))
-                Text("macOS 安全提示：需开启以下两项系统权限，按键与侧键才能生效：")
+                Text("macOS 权限提示：需要开启「辅助功能」权限以接管按键与鼠标侧键：")
                     .font(.system(size: 12, weight: .bold))
                 Spacer()
                 Button("🔄 检查并激活") {
@@ -245,50 +248,27 @@ public struct SettingsView: View {
                 .controlSize(.small)
             }
             
-            Text("💡 提示：若系统列表中已显示勾选，请在列表中将开关「关闭再重新开启」，或按「-」移除后重新添加以刷新授权。")
+            Text("💡 提示：点击「去授权」并在系统设置中开启「KeyLite」，完成后切回本窗口将秒级自动激活并关闭此提示。")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
             
             HStack(spacing: 12) {
-                // 辅助功能
+                // 辅助功能 (核心必需权限)
                 HStack(spacing: 6) {
                     Image(systemName: permission.hasAccessibility ? "checkmark.circle.fill" : "xmark.circle.fill")
                         .foregroundColor(permission.hasAccessibility ? .green : .red)
-                    Text("1. 辅助功能")
+                    Text("系统辅助功能 (必需)")
                         .font(.system(size: 11, weight: .medium))
                     if !permission.hasAccessibility {
                         Button("去授权") {
                             permission.requestAccessibility()
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.borderedProminent)
                         .controlSize(.mini)
                     } else {
                         Text("已就绪")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.white.opacity(0.06))
-                .cornerRadius(6)
-                
-                // 输入监控
-                HStack(spacing: 6) {
-                    Image(systemName: permission.hasInputMonitoring ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundColor(permission.hasInputMonitoring ? .green : .red)
-                    Text("2. 输入监控")
-                        .font(.system(size: 11, weight: .medium))
-                    if !permission.hasInputMonitoring {
-                        Button("去授权") {
-                            permission.requestInputMonitoring()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.mini)
-                    } else {
-                        Text("已就绪")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.green)
                     }
                 }
                 .padding(.horizontal, 10)
@@ -299,6 +279,7 @@ public struct SettingsView: View {
         }
         .padding(12)
         .background(Color.orange.opacity(0.12))
+        .animation(.easeInOut(duration: 0.3), value: permission.isAllGranted)
     }
     
     // MARK: - 实时测试视窗

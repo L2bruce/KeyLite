@@ -276,12 +276,12 @@ public class AppConfig: ObservableObject {
     
     public static let shared = AppConfig()
     
-    private var configURL: URL {
+    private let configURL: URL = {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let dir = home.appendingPathComponent(".keylite", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("config.json")
-    }
+    }()
     
     public init() {
         loadDefaults()
@@ -423,7 +423,7 @@ public class AppConfig: ObservableObject {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
         if let encoded = try? encoder.encode(save) {
-            try? encoded.write(to: configURL)
+            try? encoded.write(to: configURL, options: .atomic)
         }
     }
     

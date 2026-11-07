@@ -7,9 +7,12 @@ public class ShortcutSimulator {
     public static let shared = ShortcutSimulator()
     public static let syntheticEventMarker: Int64 = 0x54494C45 // "TILE" 标记，用于识别自己合成的按键事件
     
-    // 1. 模拟发送组合按键 (后台异步发送，保持按压 25ms 确保被系统和微信等应用正确捕获)
+    // 专用串行模拟队列：确保组合按键严格先进先出（FIFO），彻底防止多按键并发交错导致修饰键卡死
+    private let simulationQueue = DispatchQueue(label: "com.keylite.simulation", qos: .userInteractive)
+    
+    // 1. 模拟发送组合按键 (串行后台队列发送，保持按压 30ms 确保被系统和微信等应用正确捕获)
     public func postShortcut(_ shortcut: ShortcutDef) {
-        DispatchQueue.global(qos: .userInteractive).async {
+        simulationQueue.async {
             let src = CGEventSource(stateID: .combinedSessionState)
             
             var flags = CGEventFlags()
@@ -41,18 +44,22 @@ public class ShortcutSimulator {
     }
     
     // 2. 毫秒级原生即时锁屏 (调用 macOS 系统私有登录框架的即时锁屏入口，无需 AppleScript 延迟)
+    // 注意：不对 login.framework 调用 dlclose，因为：
+    //   1. 私有框架函数可能内部有异步操作，过早 close 可能导致 crash
+    //   2. dyld 共享缓存中的系统框架 dlclose 实际是 no-op，不会释放内存
+    private static var loginHandle: UnsafeMutableRawPointer? = {
+        return dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/Current/login", RTLD_LAZY)
+    }()
+    
     public func lockScreen() {
         DispatchQueue.global(qos: .userInteractive).async {
-            if let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/Current/login", RTLD_LAZY) {
-                if let sym = dlsym(handle, "SACLockScreenImmediate") {
-                    typealias LockFunction = @convention(c) () -> Void
-                    let lockFunc = unsafeBitCast(sym, to: LockFunction.self)
-                    lockFunc()
-                    dlclose(handle)
-                    KeyInterceptor.shared.log("🔒 已通过 SACLockScreenImmediate 毫秒级锁定屏幕")
-                    return
-                }
-                dlclose(handle)
+            if let handle = Self.loginHandle,
+               let sym = dlsym(handle, "SACLockScreenImmediate") {
+                typealias LockFunction = @convention(c) () -> Void
+                let lockFunc = unsafeBitCast(sym, to: LockFunction.self)
+                lockFunc()
+                KeyInterceptor.shared.log("🔒 已通过 SACLockScreenImmediate 毫秒级锁定屏幕")
+                return
             }
             
             // 备用兜底方案：模拟 Ctrl + Cmd + Q (系统标准锁屏快捷键)
@@ -61,9 +68,9 @@ public class ShortcutSimulator {
         }
     }
     
-    // 3. 睡眠 Mac
+    // 3. 睡眠 Mac（NSAppleScript 必须在主线程调度执行以确保线程安全）
     public func sleepMac() {
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.main.async {
             let script = "tell application \"System Events\" to sleep"
             if let appleScript = NSAppleScript(source: script) {
                 var error: NSDictionary?
@@ -72,9 +79,9 @@ public class ShortcutSimulator {
         }
     }
     
-    // 4. 静音切换
+    // 4. 静音切换（NSAppleScript 必须在主线程调度执行以确保线程安全）
     public func toggleMute() {
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.main.async {
             let script = "set volume output muted (not (output muted of (get volume settings)))"
             if let appleScript = NSAppleScript(source: script) {
                 var error: NSDictionary?
@@ -83,10 +90,12 @@ public class ShortcutSimulator {
         }
     }
     
-    // 5. 打开指定 App
+    // 5. 打开指定 App（需在主线程调用 NSWorkspace API）
     public func launchApp(at path: String) {
         let url = URL(fileURLWithPath: path)
-        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+        DispatchQueue.main.async {
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+        }
     }
     
     // 6. 执行预设动作分发
