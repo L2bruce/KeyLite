@@ -10,6 +10,13 @@ public class DeviceDetector: ObservableObject {
     
     private var timer: Timer?
     
+    // 全局持久复用的 IOHIDManager 实例，避免高频创建导致的 Mach 端口配额泄漏
+    private let hidManager: IOHIDManager = {
+        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        IOHIDManagerSetDeviceMatching(manager, nil)
+        return manager
+    }()
+    
     public init() {
         refreshDevices()
     }
@@ -29,14 +36,11 @@ public class DeviceDetector: ObservableObject {
     }
     
     public func refreshDevices() {
-        // 无需 IOHIDManagerOpen（免权限只读探测设备列表）
-        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        IOHIDManagerSetDeviceMatching(manager, nil)
-        
+        // 复用单例 hidManager，免权限只读探测设备列表
         var keyboards: [String] = []
         var mice: [String] = []
         
-        if let devices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> {
+        if let devices = IOHIDManagerCopyDevices(hidManager) as? Set<IOHIDDevice> {
             for device in devices {
                 guard let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String,
                       !name.isEmpty else { continue }

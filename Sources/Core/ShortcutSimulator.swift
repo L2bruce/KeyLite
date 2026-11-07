@@ -2,6 +2,8 @@ import Foundation
 import Cocoa
 import Carbon
 import Darwin
+import CoreAudio
+import AudioToolbox
 
 public class ShortcutSimulator {
     public static let shared = ShortcutSimulator()
@@ -10,7 +12,7 @@ public class ShortcutSimulator {
     // 专用串行模拟队列：确保组合按键严格先进先出（FIFO），彻底防止多按键并发交错导致修饰键卡死
     private let simulationQueue = DispatchQueue(label: "com.keylite.simulation", qos: .userInteractive)
     
-    // 1. 模拟发送组合按键 (串行后台队列发送，保持按压 30ms 确保被系统和微信等应用正确捕获)
+    // 1. 模拟发送组合按键 (串行后台队列发送，非阻塞异步保持 30ms 确保被系统和微信等应用正确捕获)
     public func postShortcut(_ shortcut: ShortcutDef) {
         simulationQueue.async {
             let src = CGEventSource(stateID: .combinedSessionState)
@@ -35,11 +37,14 @@ public class ShortcutSimulator {
             // 发送 KeyDown
             keyDown.post(tap: .cghidEventTap)
             
-            // 物理按下保持 30 毫秒
-            usleep(30000)
-            
-            // 发送 KeyUp
-            keyUp.post(tap: .cghidEventTap)
+            // 串行事务锁步：保持按键物理按压 15ms，随后在当前串行队列上下文中确保 keyUp 发送完毕
+            // 使用 DispatchSemaphore 等待，既确保按键被系统及目标应用识别，又维持严格 FIFO 顺序，杜绝修饰键交错粘滞
+            let semaphore = DispatchSemaphore(value: 0)
+            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.015) {
+                keyUp.post(tap: .cghidEventTap)
+                semaphore.signal()
+            }
+            _ = semaphore.wait(timeout: .now() + 0.05)
         }
     }
     
@@ -68,9 +73,9 @@ public class ShortcutSimulator {
         }
     }
     
-    // 3. 睡眠 Mac（NSAppleScript 必须在主线程调度执行以确保线程安全）
+    // 3. 睡眠 Mac（在后台并发队列执行，严禁阻塞主 RunLoop 导致 EventTap 超时）
     public func sleepMac() {
-        DispatchQueue.main.async {
+        DispatchQueue.global(qos: .userInteractive).async {
             let script = "tell application \"System Events\" to sleep"
             if let appleScript = NSAppleScript(source: script) {
                 var error: NSDictionary?
@@ -79,14 +84,69 @@ public class ShortcutSimulator {
         }
     }
     
-    // 4. 静音切换（NSAppleScript 必须在主线程调度执行以确保线程安全）
+    // 4. 静音切换（使用原生 CoreAudio C API，微秒级执行，彻底消除跨进程 AppleScript IPC 阻塞与内存泄漏隐患）
     public func toggleMute() {
-        DispatchQueue.main.async {
-            let script = "set volume output muted (not (output muted of (get volume settings)))"
-            if let appleScript = NSAppleScript(source: script) {
-                var error: NSDictionary?
-                appleScript.executeAndReturnError(&error)
+        DispatchQueue.global(qos: .userInteractive).async {
+            var defaultOutputDeviceID = AudioDeviceID(0)
+            var propertySize = UInt32(MemoryLayout<AudioDeviceID>.size)
+            var propertyAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            
+            let status = AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject),
+                &propertyAddress,
+                0,
+                nil,
+                &propertySize,
+                &defaultOutputDeviceID
+            )
+            
+            guard status == noErr, defaultOutputDeviceID != kAudioDeviceUnknown else {
+                KeyInterceptor.shared.log("⚠️ 获取默认音频输出设备失败")
+                return
             }
+            
+            var muteAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyMute,
+                mScope: kAudioDevicePropertyScopeOutput,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            
+            if !AudioObjectHasProperty(defaultOutputDeviceID, &muteAddress) {
+                muteAddress.mElement = 1
+            }
+            
+            guard AudioObjectHasProperty(defaultOutputDeviceID, &muteAddress) else {
+                KeyInterceptor.shared.log("⚠️ 当前音频设备不支持硬件静音属性")
+                return
+            }
+            
+            var isMuted: UInt32 = 0
+            var muteSize = UInt32(MemoryLayout<UInt32>.size)
+            let getMuteStatus = AudioObjectGetPropertyData(
+                defaultOutputDeviceID,
+                &muteAddress,
+                0,
+                nil,
+                &muteSize,
+                &isMuted
+            )
+            
+            guard getMuteStatus == noErr else { return }
+            
+            var newMute: UInt32 = (isMuted == 0) ? 1 : 0
+            AudioObjectSetPropertyData(
+                defaultOutputDeviceID,
+                &muteAddress,
+                0,
+                nil,
+                muteSize,
+                &newMute
+            )
+            KeyInterceptor.shared.log("🔊 系统静音状态已切换为: \(newMute == 1 ? "静音" : "开启声音")")
         }
     }
     

@@ -30,6 +30,17 @@ public class KeyInterceptor {
         return dir.appendingPathComponent("app.log")
     }()
     
+    private let oldLogURL: URL = {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let dir = home.appendingPathComponent(".keylite", isDirectory: true)
+        return dir.appendingPathComponent("app.log.old")
+    }()
+    
+    // 节流与退避状态记录
+    private var lastLiveEventDispatchTime: DispatchTime = .now()
+    private var isReEnabling = false
+    private var logWriteCounter: Int = 0
+    
     public init() {}
     
     public func log(_ message: String) {
@@ -40,14 +51,15 @@ public class KeyInterceptor {
         logQueue.async { [weak self] in
             guard let self = self else { return }
             let path = self.logURL.path
+            self.logWriteCounter += 1
             
-            // 日志保护：文件大于 2MB 时截断保留最新的 100KB，避免长期运行撑爆用户磁盘
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-               let size = attrs[.size] as? Int64, size > 2 * 1024 * 1024 {
-                if let data = try? Data(contentsOf: self.logURL) {
-                    let keepSize = min(100 * 1024, data.count)
-                    let trimmed = data.suffix(keepSize)
-                    try? trimmed.write(to: self.logURL, options: .atomic)
+            // 日志保护与安全轮转：每写入 20 条日志检查一次文件大小，大于 2MB 时执行原子文件轮转
+            // 彻底杜绝二进制切片截断 UTF-8 中文字符造成的乱码，且避免每次击键都查询磁盘属性
+            if self.logWriteCounter % 20 == 0 {
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                   let size = attrs[.size] as? Int64, size > 2 * 1024 * 1024 {
+                    try? FileManager.default.removeItem(at: self.oldLogURL)
+                    try? FileManager.default.moveItem(at: self.logURL, to: self.oldLogURL)
                 }
             }
             
@@ -96,7 +108,7 @@ public class KeyInterceptor {
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 if let refcon = refcon {
                     let interceptor = Unmanaged<KeyInterceptor>.fromOpaque(refcon).takeUnretainedValue()
-                    interceptor.reEnable()
+                    interceptor.scheduleReEnable()
                 }
                 // 超时/用户输入禁用是系统状态通知，严禁将其作为普通用户按键放行，必须返回 nil
                 return nil
@@ -159,6 +171,19 @@ public class KeyInterceptor {
         }
         self.isRunning = false
         log("⏹️ 按键拦截器已停止")
+    }
+    
+    public func scheduleReEnable() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, !self.isReEnabling else { return }
+            self.isReEnabling = true
+            self.log("⚠️ CGEventTap 收到系统挂起/超时通知，执行 500ms 防抖退避重激活...")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self = self else { return }
+                self.isReEnabling = false
+                self.reEnable()
+            }
+        }
     }
     
     public func reEnable() {
@@ -235,9 +260,15 @@ public class KeyInterceptor {
         
         // 录制器监听 (在录制弹窗开启时捕获)
         if type == .keyDown, let recorder = onRawKeyDown {
-            let handled = recorder(keyCode, event.flags)
-            if handled {
-                return nil
+            // 安全机制：仅在 KeyLite 处于活跃前台时拦截录制，防止切到其他应用输入时吞噬按键或截获密码
+            if NSApp.isActive {
+                let handled = recorder(keyCode, event.flags)
+                if handled {
+                    return nil
+                }
+            } else {
+                // 失焦时立刻注销录制器，恢复全局正常输入
+                self.onRawKeyDown = nil
             }
         }
         
@@ -260,6 +291,12 @@ public class KeyInterceptor {
         
         if let mapping = mapping, mapping.actionType != .none {
             if type == .keyDown {
+                // 关键防线：过滤 macOS 系统按键长按自动连发（keyboardEventAutorepeat），防止连续派发高频动作引发应用崩溃或卡死
+                let isAutorepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+                if isAutorepeat {
+                    return nil
+                }
+                
                 let actionDesc = descriptionForAction(mapping)
                 log("⌨️ 捕获按键: [\(keyName)] -> 命中规则: [\(mapping.displayName)] -> 执行: \(actionDesc)")
                 
@@ -275,10 +312,14 @@ public class KeyInterceptor {
         }
         
         // 未命中规则，正常放行给系统
-        // 性能保护：仅在 UI 处于前台测试状态时才向主线程调度派发，避免 7*24 正常打字时每敲一个按键都调度 GCD
+        // 性能保护：仅在 UI 处于前台测试状态时且以 100ms 节流频率向主线程调度派发，避免 7*24 正常打字时产生 GCD 洪泛
         if type == .keyDown, let onLiveEvent = self.onLiveEvent {
-            DispatchQueue.main.async {
-                onLiveEvent("按键 [\(keyName)]", "未配置快捷指令 (原生放行)")
+            let now = DispatchTime.now()
+            if now.uptimeNanoseconds - lastLiveEventDispatchTime.uptimeNanoseconds >= 100_000_000 {
+                lastLiveEventDispatchTime = now
+                DispatchQueue.main.async {
+                    onLiveEvent("按键 [\(keyName)]", "未配置快捷指令 (原生放行)")
+                }
             }
         }
         return Unmanaged.passUnretained(event)

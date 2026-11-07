@@ -45,6 +45,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             object: nil
         )
         
+        // 注册应用失焦通知（失焦时立刻释放录制拦截器，杜绝全局按键截获与隐私逃逸）
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppDidResignActive),
+            name: NSApplication.didResignActiveNotification,
+            object: nil
+        )
+        
         // 1. 初始化菜单栏
         syncStatusItemVisibility()
         
@@ -60,19 +68,31 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     
+    private var wakeWorkItem: DispatchWorkItem?
+    
     @objc private func handleWakeNotification() {
-        KeyInterceptor.shared.log("☀️ 系统唤醒，检查并自动激活拦截器状态...")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        // 防抖：didWakeNotification 与 screensDidWakeNotification 几乎同时广播，取消前序任务防止重复执行
+        wakeWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            KeyInterceptor.shared.log("☀️ 系统唤醒，检查并自动激活拦截器状态...")
             _ = KeyInterceptor.shared.start()
             PermissionManager.shared.refresh()
             DeviceDetector.shared.refreshDevices()
             self.updateMenu()
         }
+        wakeWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: item)
     }
     
     @objc private func handleAppDidBecomeActive() {
         // 用户从 macOS「系统设置」授权后切回 KeyLite，立即刷新权限并自动关闭弹窗
         PermissionManager.shared.refresh()
+    }
+    
+    @objc private func handleAppDidResignActive() {
+        // 应用失去焦点时，立刻清理全局录制钩子，防止在其他应用输入密码或文本时误拦截
+        KeyInterceptor.shared.onRawKeyDown = nil
     }
     
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -121,33 +141,23 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         menu.addItem(NSMenuItem.separator())
         
-        let settingsItem = NSMenuItem(title: "⚙️ 打开按键设置...", action: #selector(openSettingsWindow), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "打开设置面板", action: #selector(openSettingsWindow), keyEquivalent: "")
         settingsItem.target = self
         menu.addItem(settingsItem)
         
         menu.addItem(NSMenuItem.separator())
         
-        let lockItem = NSMenuItem(title: "🔒 立即安全锁屏", action: #selector(triggerLock), keyEquivalent: "")
+        let lockItem = NSMenuItem(title: "锁定屏幕", action: #selector(triggerLock), keyEquivalent: "")
         lockItem.target = self
         menu.addItem(lockItem)
         
-        let wechatItem = NSMenuItem(title: "✂️ 触发微信截图", action: #selector(triggerWechat), keyEquivalent: "")
+        let wechatItem = NSMenuItem(title: "微信截图", action: #selector(triggerWechat), keyEquivalent: "")
         wechatItem.target = self
         menu.addItem(wechatItem)
         
         menu.addItem(NSMenuItem.separator())
         
-        let launchItem = NSMenuItem(
-            title: LaunchAtLoginManager.shared.isEnabled ? "✓ 🚀 开机自动启动" : "🚀 开机自动启动",
-            action: #selector(toggleLaunchAtLogin),
-            keyEquivalent: ""
-        )
-        launchItem.target = self
-        menu.addItem(launchItem)
-        
-        menu.addItem(NSMenuItem.separator())
-        
-        let quitItem = NSMenuItem(title: "❌ 退出 KeyLite", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "退出 KeyLite", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
         

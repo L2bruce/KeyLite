@@ -675,11 +675,22 @@ struct EditMappingSheet: View {
         .onDisappear {
             stopRecording()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            stopRecording()
+        }
     }
     
     private func startRecording() {
         isRecording = true
         KeyInterceptor.shared.onRawKeyDown = { keyCode, flags in
+            // 支持按 Esc (53) 取消录制
+            if keyCode == 53 {
+                DispatchQueue.main.async {
+                    self.stopRecording()
+                }
+                return true
+            }
+            
             let cmd = flags.contains(.maskCommand)
             let ctrl = flags.contains(.maskControl)
             let opt = flags.contains(.maskAlternate)
@@ -772,11 +783,22 @@ struct AddCustomKeySheet: View {
         .onDisappear {
             stopListening()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            stopListening()
+        }
     }
     
     private func startListening() {
         isListening = true
         KeyInterceptor.shared.onRawKeyDown = { keyCode, _ in
+            // 支持按 Esc (53) 取消录制
+            if keyCode == 53 {
+                DispatchQueue.main.async {
+                    self.stopListening()
+                }
+                return true
+            }
+            
             DispatchQueue.main.async {
                 self.capturedKeyCode = keyCode
                 self.stopListening()

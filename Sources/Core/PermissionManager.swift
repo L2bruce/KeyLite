@@ -16,8 +16,8 @@ public class PermissionManager: ObservableObject {
     private var timer: Timer?
     
     public init() {
+        // 初始化仅执行一次无开销被动检查，严禁启动无限轮询，保护 macOS App Nap 与电池续航
         refresh()
-        startPolling()
     }
     
     public func refresh() {
@@ -96,6 +96,7 @@ public class PermissionManager: ObservableObject {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+        startPolling()
     }
     
     public func requestInputMonitoring() {
@@ -105,6 +106,7 @@ public class PermissionManager: ObservableObject {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
             NSWorkspace.shared.open(url)
         }
+        startPolling()
     }
     
     public func tryManualActivate() -> Bool {
