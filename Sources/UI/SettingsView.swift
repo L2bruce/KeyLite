@@ -61,7 +61,6 @@ public struct SettingsView: View {
                             mouseSpeedCard
                             mouseInvertCard
                             keyRow(keyId: "MouseMiddle")
-                            keyRow(keyId: "MouseTop")
                             keyRow(keyId: "MouseBack")
                             keyRow(keyId: "MouseForward")
                         }
@@ -339,9 +338,6 @@ public struct SettingsView: View {
                             .foregroundColor(.indigo)
                             .cornerRadius(4)
                     }
-                    Text("底层 IOKit 极速注入，即时生效无需重启，0% 额外 CPU 消耗")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
                 }
                 Spacer()
             }
@@ -819,7 +815,6 @@ struct AddCustomKeySheet: View {
             case 2: return "🖱️ 已捕获鼠标按键: 鼠标中键 (Button 2)"
             case 3: return "🖱️ 已捕获鼠标按键: 侧键 (Button 4 / 后退)"
             case 4: return "🖱️ 已捕获鼠标按键: 侧键 (Button 5 / 前进)"
-            case 6: return "🖱️ 已捕获鼠标按键: 鼠标顶部按键"
             default: return "🖱️ 已捕获鼠标按键: Button \(btn + 1)"
             }
         } else if let code = capturedKeyCode {
@@ -862,7 +857,7 @@ struct AddCustomKeySheet: View {
                     .font(.system(size: 12, weight: .bold))
                     .padding(.top, 4)
                 
-                TextField("如：鼠标顶部按键 / 截图按键", text: $keyName)
+                TextField("如：我的自定义按键", text: $keyName)
                     .textFieldStyle(.roundedBorder)
             }
             
@@ -881,7 +876,7 @@ struct AddCustomKeySheet: View {
                     stopListening()
                     let trimmedName = keyName.trimmingCharacters(in: .whitespacesAndNewlines)
                     if let btn = capturedMouseButton {
-                        let fallback = (btn == 6 ? "鼠标顶部按键" : (btn == 2 ? "鼠标中键 Button 2" : "鼠标按键"))
+                        let fallback = (btn == 2 ? "鼠标中键 Button 2" : "鼠标按键 (Button \(btn + 1))")
                         let finalName = trimmedName.isEmpty ? fallback : trimmedName
                         let newMapping = AppConfig.shared.addCustomMouseMapping(buttonNumber: btn, name: finalName)
                         onAdd(newMapping)

@@ -22,11 +22,11 @@ public class MouseSpeedManager: ObservableObject {
     // 经典常用 DPI 预设档位
     public static let presets: [DpiPreset] = [
         DpiPreset(dpi: 400,  speed: 0.5,  name: "400 精准"),
-        DpiPreset(dpi: 800,  speed: 0.75, name: "800 办公"),
-        DpiPreset(dpi: 1200, speed: 1.0,  name: "1200 标准"),
-        DpiPreset(dpi: 1600, speed: 1.5,  name: "1600 敏捷"),
-        DpiPreset(dpi: 2400, speed: 2.0,  name: "2400 顺滑"),
-        DpiPreset(dpi: 3200, speed: 3.0,  name: "3200 极速")
+        DpiPreset(dpi: 800,  speed: 1.0,  name: "800 办公"),
+        DpiPreset(dpi: 1200, speed: 1.5,  name: "1200 标准"),
+        DpiPreset(dpi: 1600, speed: 2.0,  name: "1600 敏捷"),
+        DpiPreset(dpi: 2400, speed: 3.0,  name: "2400 顺滑"),
+        DpiPreset(dpi: 3200, speed: 4.0,  name: "3200 极速")
     ]
     
     private init() {}
@@ -99,10 +99,13 @@ public class MouseSpeedManager: ObservableObject {
         }
     }
     
-    /// 根据倍率近似计算感官 DPI 标签
+    /// 根据倍率计算感官 DPI 标签（预设档位绝对匹配）
     public func approximateDpi(for speed: Double) -> Int {
-        // 以 1.0x 对应 1200 DPI 为基准线性映射
-        return Int((speed * 1200.0).rounded())
+        if let match = Self.presets.first(where: { abs($0.speed - speed) < 0.03 }) {
+            return match.dpi
+        }
+        let calculated = speed * 800.0
+        return Int((calculated / 10.0).rounded() * 10.0)
     }
     
     /// 读取当前系统的 mouse scaling

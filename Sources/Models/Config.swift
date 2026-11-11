@@ -311,14 +311,6 @@ public class AppConfig: ObservableObject {
             category: "鼠标设置",
             actionType: .none
         )
-        map["MouseTop"] = KeyMapping(
-            keyId: "MouseTop",
-            isMouse: true,
-            mouseButton: 6,
-            displayName: "鼠标顶部按键",
-            category: "鼠标设置",
-            actionType: .none
-        )
         map["MouseBack"] = KeyMapping(
             keyId: "MouseBack",
             isMouse: true,
@@ -424,9 +416,7 @@ public class AppConfig: ObservableObject {
                 if k == "MouseMiddle" {
                     item.displayName = "鼠标中键 Button 2"
                 }
-                if k == "MouseTop" {
-                    item.displayName = "鼠标顶部按键"
-                }
+                if k == "MouseTop" { continue } // 彻底移除顶部按键
                 if k == "F5" { item.displayName = "F5" }
                 if k == "F6" { item.displayName = "F6" }
                 if k == "F7" { item.displayName = "F7" }
@@ -435,23 +425,13 @@ public class AppConfig: ObservableObject {
                 if k == "PageDown" { item.displayName = "PgDn" }
                 self.mappings[k] = item
             }
-            // 兼容老版本：如果配置中缺少 MouseMiddle / MouseTop，补充默认定义
+            // 兼容老版本：如果配置中缺少 MouseMiddle，补充默认定义
             if self.mappings["MouseMiddle"] == nil {
                 self.mappings["MouseMiddle"] = KeyMapping(
                     keyId: "MouseMiddle",
                     isMouse: true,
                     mouseButton: 2,
                     displayName: "鼠标中键 Button 2",
-                    category: "鼠标设置",
-                    actionType: .none
-                )
-            }
-            if self.mappings["MouseTop"] == nil {
-                self.mappings["MouseTop"] = KeyMapping(
-                    keyId: "MouseTop",
-                    isMouse: true,
-                    mouseButton: 6,
-                    displayName: "鼠标顶部按键",
                     category: "鼠标设置",
                     actionType: .none
                 )
@@ -508,7 +488,6 @@ public class AppConfig: ObservableObject {
         case 2: defaultName = "鼠标中键 Button 2"
         case 3: defaultName = "鼠标侧键 (Button 4)"
         case 4: defaultName = "鼠标侧键 (Button 5)"
-        case 6: defaultName = "鼠标顶部按键"
         default: defaultName = "鼠标按键 (Button \(buttonNumber + 1))"
         }
         let newMapping = KeyMapping(
