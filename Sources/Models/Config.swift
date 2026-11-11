@@ -106,7 +106,7 @@ public enum PresetAction: String, Codable, CaseIterable {
         case .fullScreenshot: return "全屏截图 (⌘ ⇧ 3)"
         case .spotlightSearch: return "聚焦搜索 (⌘ Space)"
         case .emojiPicker: return "表情键盘 (⌃ ⌘ Space)"
-        case .pastePlainText: return "粘贴纯文本 (⌥ ⇧ ⌘ V)"
+        case .pastePlainText: return "粘贴纯文本 (自动清除格式)"
             
         case .lockScreen: return "🔒 立即安全锁屏"
         case .sleepMac: return "🌙 电脑睡眠"

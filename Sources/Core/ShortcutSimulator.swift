@@ -15,37 +15,41 @@ public class ShortcutSimulator {
     // 1. 模拟发送组合按键 (串行后台队列发送，非阻塞异步保持 30ms 确保被系统和微信等应用正确捕获)
     public func postShortcut(_ shortcut: ShortcutDef) {
         simulationQueue.async {
-            let src = CGEventSource(stateID: .combinedSessionState)
-            
-            var flags = CGEventFlags()
-            if shortcut.cmd { flags.insert(.maskCommand) }
-            if shortcut.ctrl { flags.insert(.maskControl) }
-            if shortcut.opt { flags.insert(.maskAlternate) }
-            if shortcut.shift { flags.insert(.maskShift) }
-            
-            guard let keyDown = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(shortcut.keyCode), keyDown: true),
-                  let keyUp = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(shortcut.keyCode), keyDown: false) else {
-                return
-            }
-            
-            keyDown.flags = flags
-            keyUp.flags = flags
-            
-            keyDown.setIntegerValueField(.eventSourceUserData, value: Self.syntheticEventMarker)
-            keyUp.setIntegerValueField(.eventSourceUserData, value: Self.syntheticEventMarker)
-            
-            // 发送 KeyDown
-            keyDown.post(tap: .cghidEventTap)
-            
-            // 串行事务锁步：保持按键物理按压 15ms，随后在当前串行队列上下文中确保 keyUp 发送完毕
-            // 使用 DispatchSemaphore 等待，既确保按键被系统及目标应用识别，又维持严格 FIFO 顺序，杜绝修饰键交错粘滞
-            let semaphore = DispatchSemaphore(value: 0)
-            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.015) {
-                keyUp.post(tap: .cghidEventTap)
-                semaphore.signal()
-            }
-            _ = semaphore.wait(timeout: .now() + 0.05)
+            self.postShortcutInternal(shortcut)
         }
+    }
+    
+    private func postShortcutInternal(_ shortcut: ShortcutDef) {
+        let src = CGEventSource(stateID: .combinedSessionState)
+        
+        var flags = CGEventFlags()
+        if shortcut.cmd { flags.insert(.maskCommand) }
+        if shortcut.ctrl { flags.insert(.maskControl) }
+        if shortcut.opt { flags.insert(.maskAlternate) }
+        if shortcut.shift { flags.insert(.maskShift) }
+        
+        guard let keyDown = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(shortcut.keyCode), keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(shortcut.keyCode), keyDown: false) else {
+            return
+        }
+        
+        keyDown.flags = flags
+        keyUp.flags = flags
+        
+        keyDown.setIntegerValueField(.eventSourceUserData, value: Self.syntheticEventMarker)
+        keyUp.setIntegerValueField(.eventSourceUserData, value: Self.syntheticEventMarker)
+        
+        // 发送 KeyDown
+        keyDown.post(tap: .cghidEventTap)
+        
+        // 串行事务锁步：保持按键物理按压 15ms，随后在当前串行队列上下文中确保 keyUp 发送完毕
+        // 使用 DispatchSemaphore 等待，既确保按键被系统及目标应用识别，又维持严格 FIFO 顺序，杜绝修饰键交错粘滞
+        let semaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.015) {
+            keyUp.post(tap: .cghidEventTap)
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 0.05)
     }
     
     // 2. 毫秒级原生即时锁屏 (调用 macOS 系统私有登录框架的即时锁屏入口，无需 AppleScript 延迟)
@@ -158,7 +162,39 @@ public class ShortcutSimulator {
         }
     }
     
-    // 6. 执行预设动作分发
+    // 6. 粘贴纯文本 (从系统剪贴板提取文本，剥离富文本/HTML格式后通过 ⌘ V 原生粘贴，兼容所有应用)
+    public func pastePlainText() {
+        simulationQueue.async {
+            let pasteboard = NSPasteboard.general
+            var plainText: String? = pasteboard.string(forType: .string)
+            
+            // 兜底提取：若直接读取 string 为空，尝试从富文本对象中提取纯文本
+            if plainText == nil || plainText?.isEmpty == true {
+                if let attrStrings = pasteboard.readObjects(forClasses: [NSAttributedString.self], options: nil) as? [NSAttributedString],
+                   let first = attrStrings.first {
+                    plainText = first.string
+                }
+            }
+            
+            guard let text = plainText, !text.isEmpty else {
+                KeyInterceptor.shared.log("⚠️ 剪贴板中无有效纯文本内容，跳过纯文本粘贴")
+                return
+            }
+            
+            // 剥离富文本样式：先清空剪贴板，再仅写入 utf-8 纯文本
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            KeyInterceptor.shared.log("📋 已清洗剪贴板富文本格式 (字符数: \(text.count))，触发 ⌘ Cmd + V 纯文本粘贴")
+            
+            // 留出微小延时 (10ms) 确保系统剪贴板服务完成数据广播
+            usleep(10000)
+            
+            // 发送通用的 Cmd + V 进行粘贴
+            self.postShortcutInternal(ShortcutDef(keyCode: 9, cmd: true))
+        }
+    }
+    
+    // 7. 执行预设动作分发
     public func executePresetAction(_ action: PresetAction) {
         KeyInterceptor.shared.log("⚡ 执行动作: \(action.displayName)")
         
@@ -246,8 +282,7 @@ public class ShortcutSimulator {
             postShortcut(ShortcutDef(keyCode: 49, cmd: true, ctrl: true))
             
         case .pastePlainText:
-            // 粘贴纯文本: Opt + Shift + Cmd + V
-            postShortcut(ShortcutDef(keyCode: 9, cmd: true, opt: true, shift: true))
+            pastePlainText()
             
         // 系统控制
         case .lockScreen:
