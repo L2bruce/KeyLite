@@ -80,7 +80,12 @@ ditto "$APP_DIR" "$DEST"
 codesign --force --deep --sign - "$DEST"
 touch "$DEST"
 
-echo "==> 7. 启动新版本 KeyLite"
+echo "==> 7. 重置 TCC 授权指纹缓存（清除旧 CDHash 哈希值，防止假授权或权限无法添加）"
+tccutil reset Accessibility "${BUNDLE_ID}" 2>/dev/null || true
+tccutil reset ListenEvent "${BUNDLE_ID}" 2>/dev/null || true
+
+echo "==> 8. 启动新版本 KeyLite 并唤起系统授权面板"
 open "$DEST"
+open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
 
 echo "==> 🎉 构建与部署成功: $DEST"

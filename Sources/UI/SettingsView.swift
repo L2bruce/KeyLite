@@ -141,6 +141,7 @@ public struct SettingsView: View {
         .frame(minWidth: 720, minHeight: 580)
         .onAppear {
             devices.startPolling()
+            permission.startPolling()
             KeyInterceptor.shared.onLiveEvent = { input, action in
                 self.liveInputName = input
                 self.liveActionDesc = action

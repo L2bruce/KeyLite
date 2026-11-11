@@ -62,8 +62,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         LogitechManager.shared.start()
         KeyInterceptor.shared.log("应用启动完成，按键拦截器状态: \(started)")
         
-        // 3. 如果未获得权限，稍后自动呼出设置与引导窗口
+        // 3. 如果未获得权限，稍后自动呼出设置与引导窗口并开启自动感知轮询
         if !started {
+            PermissionManager.shared.startPolling()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 self.openSettingsWindow()
             }
