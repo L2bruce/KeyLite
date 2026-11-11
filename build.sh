@@ -4,6 +4,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="KeyLite"
+RESET_TCC=false
+if [[ "${1:-}" == "--reset-tcc" ]]; then
+    RESET_TCC=true
+fi
 BUNDLE_ID="com.bruce.keylite"
 BUILD_DIR="build"
 APP_DIR="${BUILD_DIR}/${APP_NAME}.app"
@@ -45,9 +49,9 @@ cat << EOF > "${APP_DIR}/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.2.0</string>
+    <string>1.3.0</string>
     <key>CFBundleVersion</key>
-    <string>3</string>
+    <string>4</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>
@@ -71,17 +75,24 @@ swiftc -O \
     Sources/main.swift \
     -o "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
-echo "==> 5. 严格代码签名"
-codesign --force --deep --sign - "${APP_DIR}"
+echo "==> 5. 严格代码签名（指定 Designated Requirement 为 Bundle Identifier，彻底避免 CDHash 变动导致 TCC 授权丢失）"
+codesign --force --deep --sign - -r="designated => identifier \"${BUNDLE_ID}\"" "${APP_DIR}"
 
 echo "==> 6. 部署到 /Applications/"
 rm -rf "$DEST"
 ditto "$APP_DIR" "$DEST"
-codesign --force --deep --sign - "$DEST"
+codesign --force --deep --sign - -r="designated => identifier \"${BUNDLE_ID}\"" "$DEST"
 touch "$DEST"
 
-echo "==> 7. 重置 TCC 授权指纹缓存（清除旧 CDHash 哈希值，防止假授权或权限无法添加）"
-tccutil reset Accessibility "${BUNDLE_ID}" 2>/dev/null || true
-tccutil reset ListenEvent "${BUNDLE_ID}" 2>/dev/null || true
+if [ "$RESET_TCC" = true ]; then
+    echo "==> 7. 重置 TCC 授权（用户指定 --reset-tcc）"
+    tccutil reset Accessibility "${BUNDLE_ID}" 2>/dev/null || true
+    tccutil reset ListenEvent "${BUNDLE_ID}" 2>/dev/null || true
+else
+    echo "==> 7. 保留现有系统权限授权（未执行 tccutil reset，系统现有授权指纹无损保留）"
+fi
+
+echo "==> 8. 启动新版本 KeyLite"
+open "$DEST"
 
 echo "==> 🎉 构建与部署成功: $DEST"

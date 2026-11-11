@@ -63,7 +63,9 @@ public struct SettingsView: View {
                         }
                         
                         VStack(spacing: 8) {
+                            mouseSpeedCard
                             mouseInvertCard
+                            keyRow(keyId: "MouseMiddle")
                             keyRow(keyId: "MouseBack")
                             keyRow(keyId: "MouseForward")
                         }
@@ -319,6 +321,80 @@ public struct SettingsView: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
         .background(Color.secondary.opacity(0.05))
+    }
+    
+    // MARK: - 鼠标速度与 DPI 调节卡片
+    private var mouseSpeedCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Image(systemName: "cursorarrow.rays")
+                    .foregroundColor(.indigo)
+                    .font(.system(size: 20))
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("鼠标指针速度与 DPI 调节")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(String(format: "%.2fx (约 %d DPI)", config.mouseSpeed, MouseSpeedManager.shared.approximateDpi(for: config.mouseSpeed)))
+                            .font(.system(size: 10, weight: .bold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Color.indigo.opacity(0.15))
+                            .foregroundColor(.indigo)
+                            .cornerRadius(4)
+                    }
+                    Text("底层 IOKit 极速注入，即时生效无需重启，0% 额外 CPU 消耗")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            
+            HStack(spacing: 12) {
+                Text("慢")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                
+                Slider(
+                    value: Binding<Double>(
+                        get: { config.mouseSpeed },
+                        set: { newVal in
+                            MouseSpeedManager.shared.setSpeed(newVal)
+                        }
+                    ),
+                    in: 0.25...4.0,
+                    step: 0.05
+                )
+                .tint(.indigo)
+                
+                Text("快")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+            
+            HStack(spacing: 8) {
+                Text("预设档位:")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                
+                ForEach(MouseSpeedManager.presets) { preset in
+                    let isSelected = abs(config.mouseSpeed - preset.speed) < 0.08
+                    Button(action: {
+                        MouseSpeedManager.shared.setSpeed(preset.speed, showHud: true)
+                    }) {
+                        Text(preset.name)
+                            .font(.system(size: 10, weight: isSelected ? .bold : .regular))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .tint(isSelected ? .indigo : .secondary)
+                }
+                Spacer()
+            }
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.06))
+        .cornerRadius(8)
     }
     
     // MARK: - 翻转鼠标卡片
@@ -711,14 +787,30 @@ struct EditMappingSheet: View {
     }
 }
 
-// MARK: - 添加自定义按键弹窗
+// MARK: - 添加自定义按键弹窗 (支持键盘与鼠标按键双模捕获)
 struct AddCustomKeySheet: View {
     var onAdd: (KeyMapping) -> Void
     @Environment(\.presentationMode) var presentationMode
     
     @State private var keyName: String = ""
     @State private var capturedKeyCode: UInt16? = nil
+    @State private var capturedMouseButton: Int64? = nil
     @State private var isListening: Bool = false
+    
+    private var capturedTitle: String {
+        if let btn = capturedMouseButton {
+            switch btn {
+            case 2: return "🖱️ 已捕获鼠标按键: 顶部/中键 (Button 2)"
+            case 3: return "🖱️ 已捕获鼠标按键: 侧键 (Button 4 / 后退)"
+            case 4: return "🖱️ 已捕获鼠标按键: 侧键 (Button 5 / 前进)"
+            default: return "🖱️ 已捕获鼠标按键: Button \(btn + 1)"
+            }
+        } else if let code = capturedKeyCode {
+            return "⌨️ 已捕获键盘按键: \(ShortcutDef.keyCodeToString(code)) (键码: \(code))"
+        } else {
+            return "请点击右侧按钮，随后敲击键盘或按下鼠标上的任意按键"
+        }
+    }
     
     var body: some View {
         VStack(spacing: 16) {
@@ -731,18 +823,18 @@ struct AddCustomKeySheet: View {
             Divider()
             
             VStack(alignment: .leading, spacing: 10) {
-                Text("第一步：敲击键盘捕获按键")
+                Text("第一步：敲击键盘或按下鼠标按键捕获")
                     .font(.system(size: 12, weight: .bold))
                 
                 HStack {
-                    Text(capturedKeyCode != nil ? "已捕获: \(ShortcutDef.keyCodeToString(capturedKeyCode!)) (键码: \(capturedKeyCode!))" : "请点击右侧按钮开始敲击")
+                    Text(capturedTitle)
                         .font(.system(size: 13, weight: .medium))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(10)
                         .background(Color.secondary.opacity(0.1))
                         .cornerRadius(8)
                     
-                    Button(isListening ? "🔴 请按下按键..." : "🎙️ 捕获按键") {
+                    Button(isListening ? "🔴 等待按下按键..." : "🎙️ 捕获按键") {
                         startListening()
                     }
                     .buttonStyle(.borderedProminent)
@@ -752,7 +844,7 @@ struct AddCustomKeySheet: View {
                     .font(.system(size: 12, weight: .bold))
                     .padding(.top, 4)
                 
-                TextField("如：我的专属按键", text: $keyName)
+                TextField("如：鼠标顶部按键 / 截图按键", text: $keyName)
                     .textFieldStyle(.roundedBorder)
             }
             
@@ -767,19 +859,25 @@ struct AddCustomKeySheet: View {
                 Spacer()
                 
                 Button("确定添加") {
-                    guard let code = capturedKeyCode else { return }
                     stopListening()
-                    let name = keyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? ShortcutDef.keyCodeToString(code) : keyName
-                    let newMapping = AppConfig.shared.addCustomMapping(keyCode: code, name: name)
-                    onAdd(newMapping)
-                    presentationMode.wrappedValue.dismiss()
+                    let trimmedName = keyName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let btn = capturedMouseButton {
+                        let newMapping = AppConfig.shared.addCustomMouseMapping(buttonNumber: btn, name: trimmedName)
+                        onAdd(newMapping)
+                        presentationMode.wrappedValue.dismiss()
+                    } else if let code = capturedKeyCode {
+                        let defaultName = ShortcutDef.keyCodeToString(code)
+                        let newMapping = AppConfig.shared.addCustomMapping(keyCode: code, name: trimmedName.isEmpty ? defaultName : trimmedName)
+                        onAdd(newMapping)
+                        presentationMode.wrappedValue.dismiss()
+                    }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(capturedKeyCode == nil)
+                .disabled(capturedKeyCode == nil && capturedMouseButton == nil)
             }
         }
         .padding(20)
-        .frame(width: 520)
+        .frame(width: 540)
         .onDisappear {
             stopListening()
         }
@@ -790,6 +888,7 @@ struct AddCustomKeySheet: View {
     
     private func startListening() {
         isListening = true
+        // 键盘按键监听
         KeyInterceptor.shared.onRawKeyDown = { keyCode, _ in
             // 支持按 Esc (53) 取消录制
             if keyCode == 53 {
@@ -801,6 +900,17 @@ struct AddCustomKeySheet: View {
             
             DispatchQueue.main.async {
                 self.capturedKeyCode = keyCode
+                self.capturedMouseButton = nil
+                self.stopListening()
+            }
+            return true
+        }
+        
+        // 鼠标按键监听
+        KeyInterceptor.shared.onRawMouseDown = { buttonNumber in
+            DispatchQueue.main.async {
+                self.capturedMouseButton = buttonNumber
+                self.capturedKeyCode = nil
                 self.stopListening()
             }
             return true
@@ -810,5 +920,6 @@ struct AddCustomKeySheet: View {
     private func stopListening() {
         isListening = false
         KeyInterceptor.shared.onRawKeyDown = nil
+        KeyInterceptor.shared.onRawMouseDown = nil
     }
 }

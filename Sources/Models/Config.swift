@@ -34,6 +34,9 @@ public enum PresetAction: String, Codable, CaseIterable {
     case forwardHistory = "forward_history"
     case scrollToTop = "scroll_to_top"
     case scrollToBottom = "scroll_to_bottom"
+    case cycleDpi = "cycle_dpi"
+    case dpiUp = "dpi_up"
+    case dpiDown = "dpi_down"
     
     // 浏览器与标签
     case refresh = "refresh"
@@ -67,7 +70,7 @@ public enum PresetAction: String, Codable, CaseIterable {
     
     public var category: PresetCategory {
         switch self {
-        case .backHistory, .forwardHistory, .scrollToTop, .scrollToBottom:
+        case .backHistory, .forwardHistory, .scrollToTop, .scrollToBottom, .cycleDpi, .dpiUp, .dpiDown:
             return .mouseNavigation
         case .refresh, .forceRefresh, .prevTab, .nextTab, .newTab, .closeTab, .reopenTab:
             return .webAndTabs
@@ -86,6 +89,9 @@ public enum PresetAction: String, Codable, CaseIterable {
         case .forwardHistory: return "前进下一页 (⌘ ])"
         case .scrollToTop: return "回到顶部 (⌘ ↑)"
         case .scrollToBottom: return "回到底部 (⌘ ↓)"
+        case .cycleDpi: return "🎯 循环切换鼠标 DPI 档位"
+        case .dpiUp: return "🔼 调高鼠标指针速度"
+        case .dpiDown: return "🔽 调低鼠标指针速度"
             
         case .refresh: return "刷新页面 (⌘ R)"
         case .forceRefresh: return "强制刷新 (⌘ ⇧ R)"
@@ -272,6 +278,7 @@ public class AppConfig: ObservableObject {
     @Published public var enabled: Bool = true
     @Published public var showMenuBarIcon: Bool = true
     @Published public var invertScroll: Bool = false // 翻转鼠标滚轮方向
+    @Published public var mouseSpeed: Double = 1.0   // 鼠标指针速度 / DPI (0.1 ~ 5.0)
     @Published public var mappings: [String: KeyMapping] = [:]
     
     public static let shared = AppConfig()
@@ -295,7 +302,15 @@ public class AppConfig: ObservableObject {
     public func loadDefaults() {
         var map: [String: KeyMapping] = [:]
         
-        // 1. 鼠标侧键 (各类多键鼠标)
+        // 1. 鼠标按键 (各类多键鼠标)
+        map["MouseMiddle"] = KeyMapping(
+            keyId: "MouseMiddle",
+            isMouse: true,
+            mouseButton: 2,
+            displayName: "鼠标顶部/中键：Button 2",
+            category: "鼠标侧键",
+            actionType: .none
+        )
         map["MouseBack"] = KeyMapping(
             keyId: "MouseBack",
             isMouse: true,
@@ -382,12 +397,14 @@ public class AppConfig: ObservableObject {
             var enabled: Bool
             var showMenuBarIcon: Bool?
             var invertScroll: Bool?
+            var mouseSpeed: Double?
             var mappings: [String: KeyMapping]
         }
         if let decoded = try? JSONDecoder().decode(SaveData.self, from: data) {
             self.enabled = decoded.enabled
             self.showMenuBarIcon = decoded.showMenuBarIcon ?? true
             self.invertScroll = decoded.invertScroll ?? false
+            self.mouseSpeed = decoded.mouseSpeed ?? 1.0
             for (k, v) in decoded.mappings {
                 var item = v
                 if k == "MouseBack" && item.displayName.contains("后退") {
@@ -404,6 +421,17 @@ public class AppConfig: ObservableObject {
                 if k == "PageDown" { item.displayName = "PgDn" }
                 self.mappings[k] = item
             }
+            // 兼容老版本：如果配置中缺少 MouseMiddle，补充默认定义
+            if self.mappings["MouseMiddle"] == nil {
+                self.mappings["MouseMiddle"] = KeyMapping(
+                    keyId: "MouseMiddle",
+                    isMouse: true,
+                    mouseButton: 2,
+                    displayName: "鼠标顶部/中键：Button 2",
+                    category: "鼠标侧键",
+                    actionType: .none
+                )
+            }
         }
     }
     
@@ -412,12 +440,14 @@ public class AppConfig: ObservableObject {
             var enabled: Bool
             var showMenuBarIcon: Bool
             var invertScroll: Bool
+            var mouseSpeed: Double
             var mappings: [String: KeyMapping]
         }
         let save = SaveData(
             enabled: enabled,
             showMenuBarIcon: showMenuBarIcon,
             invertScroll: invertScroll,
+            mouseSpeed: mouseSpeed,
             mappings: mappings
         )
         let encoder = JSONEncoder()
@@ -438,6 +468,30 @@ public class AppConfig: ObservableObject {
             keyId: id,
             keyCode: keyCode,
             displayName: name.isEmpty ? ShortcutDef.keyCodeToString(keyCode) : name,
+            category: "自定义按键",
+            actionType: .none,
+            isCustom: true
+        )
+        mappings[id] = newMapping
+        saveToFile()
+        return newMapping
+    }
+    
+    public func addCustomMouseMapping(buttonNumber: Int64, name: String) -> KeyMapping {
+        let id = "Custom_Mouse_\(buttonNumber)"
+        let defaultName: String
+        switch buttonNumber {
+        case 2: defaultName = "鼠标顶部/中键 (Button 2)"
+        case 3: defaultName = "鼠标侧键 (Button 4)"
+        case 4: defaultName = "鼠标侧键 (Button 5)"
+        default: defaultName = "鼠标按键 (Button \(buttonNumber + 1))"
+        }
+        let newMapping = KeyMapping(
+            keyId: id,
+            keyCode: 0,
+            isMouse: true,
+            mouseButton: buttonNumber,
+            displayName: name.isEmpty ? defaultName : name,
             category: "自定义按键",
             actionType: .none,
             isCustom: true

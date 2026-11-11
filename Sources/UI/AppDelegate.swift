@@ -56,8 +56,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 1. 初始化菜单栏
         syncStatusItemVisibility()
         
-        // 2. 尝试启动拦截器
+        // 2. 尝试启动拦截器并应用鼠标指针速度
         let started = KeyInterceptor.shared.start()
+        MouseSpeedManager.shared.applyCurrentSpeed()
         KeyInterceptor.shared.log("应用启动完成，按键拦截器状态: \(started)")
         
         // 3. 如果未获得权限，稍后自动呼出设置与引导窗口
@@ -77,6 +78,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self = self else { return }
             KeyInterceptor.shared.log("☀️ 系统唤醒，检查并自动激活拦截器状态...")
             _ = KeyInterceptor.shared.start()
+            MouseSpeedManager.shared.applyCurrentSpeed()
             PermissionManager.shared.refresh()
             DeviceDetector.shared.refreshDevices()
             self.updateMenu()
@@ -93,6 +95,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func handleAppDidResignActive() {
         // 应用失去焦点时，立刻清理全局录制钩子，防止在其他应用输入密码或文本时误拦截
         KeyInterceptor.shared.onRawKeyDown = nil
+        KeyInterceptor.shared.onRawMouseDown = nil
     }
     
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

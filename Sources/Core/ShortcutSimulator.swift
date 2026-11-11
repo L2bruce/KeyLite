@@ -180,6 +180,21 @@ public class ShortcutSimulator {
             // 底部: Cmd + Down
             postShortcut(ShortcutDef(keyCode: 125, cmd: true))
             
+        case .cycleDpi:
+            DispatchQueue.main.async {
+                MouseSpeedManager.shared.cycleDpi()
+            }
+            
+        case .dpiUp:
+            DispatchQueue.main.async {
+                MouseSpeedManager.shared.increaseSpeed()
+            }
+            
+        case .dpiDown:
+            DispatchQueue.main.async {
+                MouseSpeedManager.shared.decreaseSpeed()
+            }
+            
         // 浏览器与标签
         case .refresh:
             // 刷新: Cmd + R

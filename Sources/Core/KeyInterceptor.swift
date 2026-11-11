@@ -13,6 +13,9 @@ public class KeyInterceptor {
     // 按键录制监听钩子：(keyCode, flags) -> 是否消费
     public var onRawKeyDown: ((UInt16, CGEventFlags) -> Bool)?
     
+    // 鼠标按键录制监听钩子：(buttonNumber) -> 是否消费
+    public var onRawMouseDown: ((Int64) -> Bool)?
+    
     // 实时按键/鼠标状态反馈钩子：(inputName, actionDescription) -> Void
     public var onLiveEvent: ((String, String) -> Void)?
     
@@ -226,19 +229,38 @@ public class KeyInterceptor {
             return Unmanaged.passUnretained(event)
         }
         
-        // 3. 鼠标侧键处理 (Button 3: 后退, Button 4: 前进 等)
+        // 3. 鼠标按键处理 (Button 2: 顶部/中键, Button 3: 侧键后退, Button 4: 侧键前进 等)
         if type == .otherMouseDown || type == .otherMouseUp {
             let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
             
-            // 查找鼠标侧键规则
+            // 鼠标按键录制器监听 (在录制弹窗开启时捕获)
+            if type == .otherMouseDown, let mouseRecorder = onRawMouseDown {
+                if NSApp.isActive {
+                    let handled = mouseRecorder(buttonNumber)
+                    if handled {
+                        return nil
+                    }
+                } else {
+                    self.onRawMouseDown = nil
+                }
+            }
+            
+            // 查找鼠标按键规则
             let mouseMapping = AppConfig.shared.mappings.values.first(where: {
                 $0.isMouse && $0.mouseButton == buttonNumber
             })
             
+            let btnName: String
+            switch buttonNumber {
+            case 2: btnName = "鼠标顶部/中键(Button 2)"
+            case 3: btnName = "鼠标侧键(Button 4)"
+            case 4: btnName = "鼠标侧键(Button 5)"
+            default: btnName = "鼠标按键(Button \(buttonNumber + 1))"
+            }
+            
             if let mapping = mouseMapping, mapping.actionType != .none {
                 if type == .otherMouseDown {
                     let desc = descriptionForAction(mapping)
-                    let btnName = buttonNumber == 3 ? "鼠标侧键(后退)" : (buttonNumber == 4 ? "鼠标侧键(前进)" : "鼠标侧键(\(buttonNumber))")
                     log("🖱️ 捕获 \(btnName) -> 执行: \(desc)")
                     
                     if let onLiveEvent = self.onLiveEvent {
@@ -250,6 +272,11 @@ public class KeyInterceptor {
                 }
                 // 彻底消费该侧键，阻止系统默认或异常行为
                 return nil
+            } else if type == .otherMouseDown, let onLiveEvent = self.onLiveEvent {
+                // 未配置规则时向监视器反馈原生事件
+                DispatchQueue.main.async {
+                    onLiveEvent(btnName, "未配置快捷指令 (原生放行)")
+                }
             }
             return Unmanaged.passUnretained(event)
         }
