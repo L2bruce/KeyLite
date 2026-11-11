@@ -59,6 +59,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 2. 尝试启动拦截器并应用鼠标指针速度
         let started = KeyInterceptor.shared.start()
         MouseSpeedManager.shared.applyCurrentSpeed()
+        LogitechManager.shared.start()
         KeyInterceptor.shared.log("应用启动完成，按键拦截器状态: \(started)")
         
         // 3. 如果未获得权限，稍后自动呼出设置与引导窗口
@@ -79,6 +80,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             KeyInterceptor.shared.log("☀️ 系统唤醒，检查并自动激活拦截器状态...")
             _ = KeyInterceptor.shared.start()
             MouseSpeedManager.shared.applyCurrentSpeed()
+            LogitechManager.shared.scanExistingDevices()
             PermissionManager.shared.refresh()
             DeviceDetector.shared.refreshDevices()
             self.updateMenu()

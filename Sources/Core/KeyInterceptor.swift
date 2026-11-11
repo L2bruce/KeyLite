@@ -252,9 +252,10 @@ public class KeyInterceptor {
             
             let btnName: String
             switch buttonNumber {
-            case 2: btnName = "鼠标顶部/中键(Button 2)"
+            case 2: btnName = "鼠标中键 Button 2"
             case 3: btnName = "鼠标侧键(Button 4)"
             case 4: btnName = "鼠标侧键(Button 5)"
+            case 6: btnName = "鼠标顶部按键"
             default: btnName = "鼠标按键(Button \(buttonNumber + 1))"
             }
             
@@ -379,6 +380,43 @@ public class KeyInterceptor {
         case .launchApp:
             if let app = mapping.appPath, !app.isEmpty {
                 ShortcutSimulator.shared.launchApp(at: app)
+            }
+        }
+    }
+    
+    /// 处理罗技等设备通过 HID++ 协议上报的顶部独立按键
+    public func handleLogitechTopButtonClick() {
+        // 1. 若处于录制状态，优先将 buttonNumber 6 送入录制器
+        if let recorder = onRawMouseDown {
+            if NSApp.isActive {
+                let handled = recorder(6)
+                if handled { return }
+            } else {
+                self.onRawMouseDown = nil
+            }
+        }
+        
+        guard AppConfig.shared.enabled else { return }
+        
+        // 2. 匹配 MouseTop (或 buttonNumber == 6) 的按键规则
+        let mapping = AppConfig.shared.mappings["MouseTop"] ?? AppConfig.shared.mappings.values.first(where: {
+            $0.isMouse && $0.mouseButton == 6
+        })
+        
+        let btnName = "鼠标顶部按键"
+        if let mapping = mapping, mapping.actionType != .none {
+            let desc = descriptionForAction(mapping)
+            log("🖱️ 捕获 \(btnName) (HID++) -> 执行: \(desc)")
+            
+            if let onLiveEvent = self.onLiveEvent {
+                DispatchQueue.main.async {
+                    onLiveEvent(btnName, desc)
+                }
+            }
+            self.triggerAction(mapping: mapping)
+        } else if let onLiveEvent = self.onLiveEvent {
+            DispatchQueue.main.async {
+                onLiveEvent(btnName, "未配置快捷指令 (原生放行)")
             }
         }
     }

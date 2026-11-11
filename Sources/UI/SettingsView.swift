@@ -38,16 +38,11 @@ public struct SettingsView: View {
             // 4. 按键与侧键配置主体
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    // 1. 鼠标与滚轮设置模块
+                    // 1. 鼠标设置模块
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack(alignment: .bottom) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("🖱️ 鼠标与滚轮设置")
-                                    .font(.system(size: 15, weight: .bold))
-                                Text("精准接管侧边按键，自由翻转滚轮方向，不影响触控板")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                            }
+                        HStack(alignment: .center) {
+                            Text("🖱️ 鼠标设置")
+                                .font(.system(size: 15, weight: .bold))
                             Spacer()
                             HStack(spacing: 5) {
                                 Image(systemName: "computermouse.fill")
@@ -66,6 +61,7 @@ public struct SettingsView: View {
                             mouseSpeedCard
                             mouseInvertCard
                             keyRow(keyId: "MouseMiddle")
+                            keyRow(keyId: "MouseTop")
                             keyRow(keyId: "MouseBack")
                             keyRow(keyId: "MouseForward")
                         }
@@ -73,14 +69,9 @@ public struct SettingsView: View {
                     
                     // 2. 键盘设置模块 (统一顺序：F1 ~ F12, PageUp, PageDown)
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack(alignment: .bottom) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("⌨️ 键盘按键设置")
-                                    .font(.system(size: 15, weight: .bold))
-                                Text("按序展示功能键 F1 ~ F12 以及右上角 PgUp / PgDn")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                            }
+                        HStack(alignment: .center) {
+                            Text("⌨️ 键盘按键设置")
+                                .font(.system(size: 15, weight: .bold))
                             Spacer()
                             HStack(spacing: 5) {
                                 Image(systemName: "keyboard.fill")
@@ -121,6 +112,7 @@ public struct SettingsView: View {
                             }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
+                            .handCursor()
                         }
                         
                         let customKeys = config.mappings.values.filter { $0.isCustom }
@@ -210,6 +202,7 @@ public struct SettingsView: View {
             Toggle("拦截开关", isOn: $config.enabled)
                 .toggleStyle(.switch)
                 .labelsHidden()
+                .handCursor()
                 .onChange(of: config.enabled) { _ in
                     config.saveToFile()
                     AppDelegate.shared?.updateMenu()
@@ -248,6 +241,7 @@ public struct SettingsView: View {
                     }
                 }
                 .controlSize(.small)
+                .handCursor()
             }
             
             Text("💡 提示：点击「去授权」并在系统设置中开启「KeyLite」，完成后切回本窗口将秒级自动激活并关闭此提示。")
@@ -267,6 +261,7 @@ public struct SettingsView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.mini)
+                        .handCursor()
                     } else {
                         Text("已就绪")
                             .font(.system(size: 10, weight: .bold))
@@ -366,6 +361,7 @@ public struct SettingsView: View {
                     step: 0.05
                 )
                 .tint(.indigo)
+                .handCursor()
                 
                 Text("快")
                     .font(.system(size: 11))
@@ -388,6 +384,7 @@ public struct SettingsView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
                     .tint(isSelected ? .indigo : .secondary)
+                    .handCursor()
                 }
                 Spacer()
             }
@@ -426,6 +423,7 @@ public struct SettingsView: View {
             Toggle("翻转滚轮", isOn: $config.invertScroll)
                 .toggleStyle(.switch)
                 .labelsHidden()
+                .handCursor()
                 .onChange(of: config.invertScroll) { _ in
                     config.saveToFile()
                     AppDelegate.shared?.updateMenu()
@@ -465,7 +463,7 @@ public struct SettingsView: View {
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 4)
                 
-                // 触发动作
+                // 触发动作 (点击可直接唤起修改)
                 HStack {
                     Text(actionSummary(mapping))
                         .font(.system(size: 12))
@@ -476,12 +474,18 @@ public struct SettingsView: View {
                 .padding(.vertical, 6)
                 .background(Color.secondary.opacity(0.08))
                 .cornerRadius(6)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    editingKeyId = mapping.keyId
+                }
+                .handCursor()
                 
                 // 操作按钮
                 Button("修改") {
                     editingKeyId = mapping.keyId
                 }
                 .controlSize(.small)
+                .handCursor()
                 
                 if mapping.isCustom {
                     Button(action: { config.removeCustomMapping(keyId: mapping.keyId) }) {
@@ -490,6 +494,7 @@ public struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.leading, 4)
+                    .handCursor()
                 }
             }
             .padding(.horizontal, 12)
@@ -529,6 +534,7 @@ public struct SettingsView: View {
         HStack(spacing: 16) {
             Toggle("菜单栏显示图标", isOn: $config.showMenuBarIcon)
                 .font(.system(size: 12))
+                .handCursor()
                 .onChange(of: config.showMenuBarIcon) { _ in
                     config.saveToFile()
                     AppDelegate.shared?.syncStatusItemVisibility()
@@ -539,6 +545,7 @@ public struct SettingsView: View {
                 set: { launchManager.setEnabled($0); AppDelegate.shared?.updateMenu() }
             ))
             .font(.system(size: 12))
+            .handCursor()
             
             Spacer()
             
@@ -554,12 +561,14 @@ public struct SettingsView: View {
                 }
             }
             .controlSize(.small)
+            .handCursor()
             
             Button("关闭窗口") {
                 NSApp.keyWindow?.close()
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
+            .handCursor()
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
@@ -623,6 +632,7 @@ struct EditMappingSheet: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .handCursor()
                     
                     if index < ActionType.allCases.count - 1 {
                         Rectangle()
@@ -657,6 +667,7 @@ struct EditMappingSheet: View {
                         }
                         .labelsHidden()
                         .pickerStyle(.menu)
+                        .handCursor()
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     
@@ -677,6 +688,7 @@ struct EditMappingSheet: View {
                                 startRecording()
                             }
                             .buttonStyle(.borderedProminent)
+                            .handCursor()
                         }
                         
                         if isRecording {
@@ -710,6 +722,7 @@ struct EditMappingSheet: View {
                                     selectedAppPath = url.path
                                 }
                             }
+                            .handCursor()
                         }
                     }
                     
@@ -730,6 +743,7 @@ struct EditMappingSheet: View {
                     stopRecording()
                     presentationMode.wrappedValue.dismiss()
                 }
+                .handCursor()
                 
                 Spacer()
                 
@@ -744,6 +758,7 @@ struct EditMappingSheet: View {
                     presentationMode.wrappedValue.dismiss()
                 }
                 .buttonStyle(.borderedProminent)
+                .handCursor()
             }
         }
         .padding(20)
@@ -800,9 +815,10 @@ struct AddCustomKeySheet: View {
     private var capturedTitle: String {
         if let btn = capturedMouseButton {
             switch btn {
-            case 2: return "🖱️ 已捕获鼠标按键: 顶部/中键 (Button 2)"
+            case 2: return "🖱️ 已捕获鼠标按键: 鼠标中键 (Button 2)"
             case 3: return "🖱️ 已捕获鼠标按键: 侧键 (Button 4 / 后退)"
             case 4: return "🖱️ 已捕获鼠标按键: 侧键 (Button 5 / 前进)"
+            case 6: return "🖱️ 已捕获鼠标按键: 鼠标顶部按键"
             default: return "🖱️ 已捕获鼠标按键: Button \(btn + 1)"
             }
         } else if let code = capturedKeyCode {
@@ -838,6 +854,7 @@ struct AddCustomKeySheet: View {
                         startListening()
                     }
                     .buttonStyle(.borderedProminent)
+                    .handCursor()
                 }
                 
                 Text("第二步：输入显示名称（可选）")
@@ -855,6 +872,7 @@ struct AddCustomKeySheet: View {
                     stopListening()
                     presentationMode.wrappedValue.dismiss()
                 }
+                .handCursor()
                 
                 Spacer()
                 
@@ -862,7 +880,9 @@ struct AddCustomKeySheet: View {
                     stopListening()
                     let trimmedName = keyName.trimmingCharacters(in: .whitespacesAndNewlines)
                     if let btn = capturedMouseButton {
-                        let newMapping = AppConfig.shared.addCustomMouseMapping(buttonNumber: btn, name: trimmedName)
+                        let fallback = (btn == 6 ? "鼠标顶部按键" : (btn == 2 ? "鼠标中键 Button 2" : "鼠标按键"))
+                        let finalName = trimmedName.isEmpty ? fallback : trimmedName
+                        let newMapping = AppConfig.shared.addCustomMouseMapping(buttonNumber: btn, name: finalName)
                         onAdd(newMapping)
                         presentationMode.wrappedValue.dismiss()
                     } else if let code = capturedKeyCode {
@@ -874,6 +894,7 @@ struct AddCustomKeySheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(capturedKeyCode == nil && capturedMouseButton == nil)
+                .handCursor()
             }
         }
         .padding(20)
@@ -921,5 +942,24 @@ struct AddCustomKeySheet: View {
         isListening = false
         KeyInterceptor.shared.onRawKeyDown = nil
         KeyInterceptor.shared.onRawMouseDown = nil
+    }
+}
+
+// MARK: - 鼠标光标抓手修饰器
+struct PointingHandCursorModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content.onHover { inside in
+            if inside {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+    }
+}
+
+extension View {
+    func handCursor() -> some View {
+        self.modifier(PointingHandCursorModifier())
     }
 }
