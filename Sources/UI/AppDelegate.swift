@@ -1,7 +1,7 @@
 import Cocoa
 import SwiftUI
 
-public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     public static var shared: AppDelegate?
     
     private var statusItem: NSStatusItem?
@@ -53,15 +53,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             object: nil
         )
         
-        // 1. 初始化菜单栏
-        syncStatusItemVisibility()
-        
-        // 2. 尝试启动拦截器并应用鼠标指针速度
+        // 1. 尝试启动拦截器并应用鼠标指针速度
         let started = KeyInterceptor.shared.start()
         MouseSpeedManager.shared.applyCurrentSpeed()
         KeyInterceptor.shared.log("应用启动完成，按键拦截器状态: \(started)")
         
-        // 3. 如果未获得权限，稍后自动呼出设置与引导窗口并开启自动感知轮询
+        // 2. 初始化菜单栏（确保菜单状态在拦截器启动后初始化）
+        syncStatusItemVisibility()
+        updateMenu()
+        
+        // 3. 同步权限状态
+        PermissionManager.shared.refresh()
+        
+        // 4. 如果未获得权限，稍后自动呼出设置与引导窗口并开启自动感知轮询
         if !started {
             PermissionManager.shared.startPolling()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -130,6 +134,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let statusItem = statusItem else { return }
         
         let menu = NSMenu()
+        menu.delegate = self
         
         let titleItem = NSMenuItem(title: "KeyLite 按键助手", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
@@ -140,6 +145,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             ? (AppConfig.shared.enabled ? "🟢 状态：生效中" : "⏸️ 状态：已手动暂停")
             : "🟡 状态：等待授权"
         let statusMenuItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
+        statusMenuItem.tag = 100
         statusMenuItem.isEnabled = false
         menu.addItem(statusMenuItem)
         
@@ -166,6 +172,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(quitItem)
         
         statusItem.menu = menu
+    }
+    
+    // MARK: - NSMenuDelegate
+    public func menuWillOpen(_ menu: NSMenu) {
+        // 若当前未运行但系统辅助功能已就绪，尝试自动拉起
+        if !KeyInterceptor.shared.isRunning && AXIsProcessTrusted() {
+            _ = KeyInterceptor.shared.start()
+        }
+        
+        // 每次菜单展开前动态刷新状态项，确保与当前实际运行状态完全同步
+        if let statusMenuItem = menu.item(withTag: 100) {
+            let isRunning = KeyInterceptor.shared.isRunning
+            statusMenuItem.title = isRunning
+                ? (AppConfig.shared.enabled ? "🟢 状态：生效中" : "⏸️ 状态：已手动暂停")
+                : "🟡 状态：等待授权"
+        }
     }
     
     @objc public func openSettingsWindow() {

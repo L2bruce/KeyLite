@@ -37,6 +37,8 @@ public class PermissionManager: ObservableObject {
                 if success {
                     AppDelegate.shared?.updateMenu()
                 }
+            } else {
+                AppDelegate.shared?.updateMenu()
             }
         }
     }
