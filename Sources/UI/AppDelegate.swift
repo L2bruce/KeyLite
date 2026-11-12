@@ -179,6 +179,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSM
         // 若当前未运行但系统辅助功能已就绪，尝试自动拉起
         if !KeyInterceptor.shared.isRunning && AXIsProcessTrusted() {
             _ = KeyInterceptor.shared.start()
+        } else if KeyInterceptor.shared.isRunning && !AXIsProcessTrusted() {
+            // 反向闭环保护：若辅助功能权限在外部被撤销，立即注销并释放拦截器
+            KeyInterceptor.shared.stop()
         }
         
         // 每次菜单展开前动态刷新状态项，确保与当前实际运行状态完全同步

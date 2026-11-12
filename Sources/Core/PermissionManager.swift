@@ -28,16 +28,23 @@ public class PermissionManager: ObservableObject {
         DispatchQueue.main.async {
             self.hasAccessibility = ax
             self.hasInputMonitoring = im
-            self.isInterceptorActive = running
             
-            // 只要辅助功能权限就绪且拦截器未运行，即刻拉起
+            // 1. 辅助功能就绪但拦截器未运行：即刻拉起
             if ax && !running {
                 let success = KeyInterceptor.shared.start()
                 self.isInterceptorActive = success
-                if success {
-                    AppDelegate.shared?.updateMenu()
-                }
-            } else {
+                AppDelegate.shared?.updateMenu()
+            }
+            // 2. 关键安全防线：若辅助功能被明确撤销，主动注销并释放 EventTap
+            else if !ax && running {
+                KeyInterceptor.shared.log("⚠️ 检测到辅助功能权限被撤销，立即注销并释放按键拦截器！")
+                KeyInterceptor.shared.stop()
+                self.isInterceptorActive = false
+                AppDelegate.shared?.updateMenu()
+            }
+            // 3. 状态未变动，常规同步菜单
+            else {
+                self.isInterceptorActive = running
                 AppDelegate.shared?.updateMenu()
             }
         }
